@@ -14,8 +14,9 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow_datasets as tfds
+from tensorflow.keras.models import Model
 from tensorflow.keras.losses import BinaryCrossentropy
-from keras.layers import MaxPool2D, Conv2D, Dense, Flatten, InputLayer
+from keras.layers import MaxPool2D, Conv2D, Dense, Flatten, InputLayer, BatchNormalization, Input,  Layer
 from tensorflow.keras.optimizers import Adam
 
 
@@ -100,6 +101,7 @@ val_dataset = val_dataset.shuffle(buffer_size = 8, reshuffle_each_iteration=True
 
 normalizer = tf.keras.layers.Conv2D(filters = 6, kernel_size = 5, strides=1, padding="valid", activation="sigmoid")
 #LeNet CNN
+# SEQUENTIAL API
 model = tf.keras.Sequential([
     InputLayer(input_shape=(IM_SIZE, IM_SIZE, 3)),
     #Convolution 1 + Pool
@@ -122,11 +124,128 @@ model.summary()
 #Error sanctioning explanation below not needed is done during compilation
 bce = tf.keras.losses.BinaryCrossentropy(from_logits=False) #False(default) applies if Sigmoid is used which has a 0-1 
 
-
-
 # Model Compilation
 
 model.compile(optimizer= Adam(learning_rate = 0.1),
-              loss = BinaryCrossentropy())
+              loss = BinaryCrossentropy(),
+              metrics = [TruePositives(name="TP"), FalsePositives(name="FP"), TrueNegatives(name="TN"), FalseNegatives(name="FN"), BinaryAccuracy(name="accuracy"), Precision(name="precision"), Recall(name="recall"), AUC(name="auc")]
+              )
 
-history = model.fit(train_dataset, validation_data=val_dataset, epochs = 100, verbose=1)
+history = lenetClass.fit(train_dataset, validation_data=val_dataset ,epochs = 5, verbose=1)
+
+
+#==========================================
+#FUNCTIONAL BASED
+
+
+#LeNet CNN
+func_input = Input(shape= (IM_SIZE, IM_SIZE, 3), name="Input Image")
+
+#THESE convolution LAYERS EXTRACT THE FEATURES
+x = tf.keras.layers.Conv2D(filters = 12, kernel_size = 3, strides=1, padding="valid", activation="relu")(func_input)
+x =   BatchNormalization()(x)
+x =    MaxPool2D(pool_size=2, strides=2)(x)
+    
+x =    tf.keras.layers.Conv2D(filters = 12, kernel_size = 3, strides=1, padding="valid", activation="relu")(x)
+x =    BatchNormalization()(x)
+output =    MaxPool2D(pool_size=2, strides=2)(x)
+feature_extractor_model = Model(func_input, output, name="Lenet_Model")
+
+
+#THESE LAYERS CLASSIFY IF THE IMAGE IS PARASITIC
+x = feature_extractor_model(func_input)
+x =   Flatten()(x)
+x =   Dense(220, activation="relu")(x)
+x =   BatchNormalization()(x)
+x =   Dense(75, activation="relu")(x)
+x =   BatchNormalization()(x)
+
+# 0 for infected and 1 for uninfected. We have one output
+func_output =  Dense(1, activation='sigmoid')(x)
+
+model_func = Model(func_input, func_output, name="Lenet_Model")
+model_func.summary()
+
+
+model_func.compile(optimizer= Adam(learning_rate = 0.1),
+              loss = BinaryCrossentropy(),
+              metrics = [TruePositives(name="TP"), FalsePositives(name="FP"), TrueNegatives(name="TN"), FalseNegatives(name="FN"), BinaryAccuracy(name="accuracy"), Precision(name="precision"), Recall(name="recall"), AUC(name="auc")]
+              )
+
+history = lenetClass.fit(train_dataset, validation_data=val_dataset ,epochs = 5, verbose=1)
+
+
+#=========================================
+
+#OOP class based
+
+#SUBCLASSING - OOP CLASSED BASED
+#below inherits from Layer (keras)
+class FeatureExtractor(Layer):
+  def __init__(self, filters, kernel_size, strides, padding, activation, pool_size):
+    #inherits Layer through FeatureExdtractor and initializes the constructor
+    super(FeatureExtractor, self).__init__()
+    
+    self.convulution_1 = tf.keras.layers.Conv2D(filters = filters, kernel_size = kernel_size, strides=strides, padding=padding, activation=activation)
+    self.batch_1 = BatchNormalization()
+    self.pool_1 = MaxPool2D(pool_size=pool_size, strides=strides * 2)
+
+    self.convulution_2 = tf.keras.layers.Conv2D(filters = filters * 2, kernel_size = kernel_size, strides=strides, padding=padding, activation=activation)
+    self.batch_2 = BatchNormalization()
+    self.pool_2 = MaxPool2D(pool_size=pool_size, strides=strides * 2)
+
+    def call(self, x, training ):
+      self.convolution_1(x)
+      self.batch_1(x)
+      self.pool_1(x)
+      self.convolution_2(x)
+      self.batch_2(x)
+      self.pool_2(x)
+
+      return x
+
+class LenetModel(Model):
+  def __init__(self):
+    super(LenetModel, self).__init__()
+    self.feature_extractor = FeatureExtractor(8, 3, 1, "valid", "relu", 2)
+    self.flatten = Flatten()
+
+    self.dense_1 = Dense(220, activation="relu")
+    self.batch_1 = BatchNormalization()
+    self.dense_2 = Dense(75, activation="relu")
+    self.batch_2 = BatchNormalization()
+    self.dense_3 = Dense(1, activation="sigmoid")
+
+  def call(self, x, training):
+    x = self.feature_extractor(x)
+    x = self.flatten(x)
+    x = self.dense_1(x)
+    x = self.batch_1(x)
+    x = self.dense_2(x)
+    x = self.batch_2(x)
+    x = self.dense_3(x)
+    return x
+
+lenetClass = LenetModel()
+lenetClass(tf.zeros([1, 224, 224, 3]))
+
+
+# DEFINING CUSTOM DENSE LAYER
+
+class CustomDense(Layer):
+  def __init__(self, output_units):
+    super(CustomDense, self).__init__()
+    self.output_units = output_units
+
+  def build(self, input_features_shape):
+    #add_weight inherited from Layer,  input_features_shape[-1] == number of rows in matrix
+    self.w = self.add_weight(shape = (input_features_shape[-1], self.output_units), initializer="random_normal", trainable = True)
+    self.b = self.add_weight(shape = (self.output_units), initializer="random_normal", trainable="Ture")
+
+  def call(self, input_features):
+    #matrix multiplyer
+    if(activation == "relu"):
+      return tf.nn.sigmoid(tf.matmul(input_features, self.w) + self.bi)
+    elif (activation == "sigmoid"):
+      return tf.math.sigmoid(tf.matmul(input_features, self.w) + self.b)
+    else: return tf.matmul(input_features, self.w) + self.b
