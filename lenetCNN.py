@@ -16,6 +16,7 @@ import numpy as np
 import tensorflow_datasets as tfds
 from tensorflow.keras.models import Model
 from tensorflow.keras.losses import BinaryCrossentropy
+from tensorflow.keras.callbacks import Callback, CSVLogger, EarlyStopping, LearningRateScheduler
 from keras.layers import MaxPool2D, Conv2D, Dense, Flatten, InputLayer, BatchNormalization, Input,  Layer
 from tensorflow.keras.optimizers import Adam
 
@@ -249,3 +250,104 @@ class CustomDense(Layer):
     elif (activation == "sigmoid"):
       return tf.math.sigmoid(tf.matmul(input_features, self.w) + self.b)
     else: return tf.matmul(input_features, self.w) + self.b
+
+
+
+
+#--------------------------------Maximize performance-------------------
+# creating callbacks--------
+#OOP
+class LossCallback(Callback):
+  def on_epoch_end(self, epoch, logs):
+    print("Epoch Number {} the model has a loss of {}".format(epoch, logs['loss']) )
+
+#functional
+csv_logger = CSVLogger(
+    'logs.csv', separator=",", append=False
+)
+
+# TO AVOID OVERFITTING!!!!!!
+# TO AVOID OVERFITTING!!!!!!
+# TO AVOID OVERFITTING!!!!!!
+# TO AVOID OVERFITTING!!!!!!
+early_stopping_callback = EarlyStopping(
+    #if validation_loss stops reducing - or worse, increasing again, stop the training
+    monitor="val_loss", 
+    #minimum training improvement (improvement of loss) that should be achieved before stopping
+    min_delta=0, 
+    #over how many epochs should the above values be monitored before the training is stopped
+    patience=5, 
+    verbose=0,
+    #auto, model will infer if it needs to achieve decrease or increase to show success, also allows min, max
+    mode="auto", 
+    #can set a baseline, the model will stop training if it doesn't see an increase above baseline value
+    baseline=None, 
+    #if we continue training through "patience", model will use the best configuration across the continuation of the training 
+    restore_best_weights=True
+
+    #Lerning Rate Scheduling -----------------
+
+#Advanced learning rate scheduling methods here : https://mxnet.apache.org/versions/1.7/api/python/docs/tutorials/packages/gluon/training/learning_rates/learning_rate_schedules_advanced.html
+  #Below is simply decrease. In practice, warmup with initial increase should be used!!!
+  def scheduler(epoch, lr):
+  if epoch < 4:
+    print("In accelerated learning")
+    return lr
+    
+  else:
+    print("Reducing rate exponentially. Current rate {}".format(lr))
+    return lr * tf.math.exp(-0.1)
+
+learning_rate_scheduler = LearningRateScheduler(scheduler, verbose=1)
+
+
+# stores the weights of the model at certain checkoints to avoid loss
+modelCheckpoint = ModelCheckpoint(
+    "checkpoints/",
+    monitor='val_loss',
+    verbose=1,
+    #saves the best weights out of each epoch
+    save_best_only=True,
+    save_weights_only=False,
+    mode='auto',
+    save_freq='epoch',
+    options=None,
+    initial_value_threshold=None,
+   
+)
+#Reduces learning rate on plateu - you should monitor the accuracy here!!!! 
+#This adjusts the learning rate once more dynamically if the val_accuracy doesn't improve - even with the already included scheduling
+
+reduce_lr = ReduceLROnPlateau(monitor='val_accuracy', factor=0.1,
+                              patience=5, min_lr=0.001, verbose=1)
+
+
+Overfitting:
+The validation loss increases, at the same time, the training accuracy still decreases.
+
+Resolution: 
+
+-Data augumentation
+-Dropout:Reduces the model complexity
+    Included in model after a convolution or Dense layer:
+    tf.keras.layers.Dropout(rate=0.3)
+-Regularization usually L2 - adds a penalty to the loss function -> it forces the model to learn simpler patterns, leading to better generalization
+    tf.keras.layers.regularizers.L2(l2=0.01)->
+    tf.keras.layers.Conv2D(filters = 6, kernel_size = 5, strides=1, padding="valid", activation="sigmoid", kernel_regularizer=tf.keras.regularizers.L2(l2=0.01)),
+-Stop training use scheduling, use ReuceLROnPlateau
+-Use a less complex network , remove dense layers remove layers and/or neurons.
+-Tune hyperparameters: BatchSize, dopoutRate, regularizationRate, LearningRate
+
+"Training with large minibatches is bad for your health"
+"More importantly its bad for your test error"
+"Friends don't let friends use batch sizes larger than 32" - large batch size speeds up training but causes more errors
+
+Underfitting,
+The training/validation accuracy doesnt reach its potential, stagnating well below 100% never improving
+
+Resultion:
+-Improve model complexity, add layers and/or neurons
+-Collect more data
+-More training time
+-Hyperparameter turning
+-Normalization
